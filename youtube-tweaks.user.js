@@ -108,6 +108,61 @@
   const SUPPRESS_ATTR = 'data-ytq-suppress-menu'; // hides the menu popup flash
   const STYLE_ID = 'ytq-sizing-style';
 
+  // Homepage grid presets -> {cols, minWidth}. The homepage is a RESPONSIVE
+  // grid whose density is driven by CSS variables on ytd-rich-grid-renderer
+  // (NOT by item width), so we override those vars instead of zooming items.
+  // `native` emits no rule so YouTube uses its own responsive default.
+  // VERIFY (live DOM): variable names below and that min-width lets columns pack.
+  const GRID_PRESETS = {
+    'very-small': { cols: 7, minWidth: 120 },
+    'small':      { cols: 6, minWidth: 150 },
+    'medium':     { cols: 5, minWidth: 180 },
+    'native':     null,
+    'very-large': { cols: 3, minWidth: 320 },
+  };
+
+  // --------------------------------------------------------------------------
+  //  DOM helpers — built WITHOUT any string-to-HTML sink (innerHTML/outerHTML/
+  //  insertAdjacentHTML). YouTube enforces Trusted Types
+  //  (require-trusted-types-for 'script'), which makes those throw and would
+  //  abort the whole script. Everything is created with createElement /
+  //  createElementNS / textContent / setAttribute instead.
+  // --------------------------------------------------------------------------
+  const SVG_NS = 'http://www.w3.org/2000/svg';
+
+  function el(tag, props, children) {
+    const node = document.createElement(tag);
+    if (props) {
+      for (const [k, v] of Object.entries(props)) {
+        if (v == null) continue;
+        if (k === 'class') node.className = v;
+        else if (k === 'text') node.textContent = v;
+        else if (k === 'dataset') Object.assign(node.dataset, v);
+        else if (k === 'onclick') node.addEventListener('click', v);
+        else node.setAttribute(k, v);
+      }
+    }
+    if (children != null) {
+      for (const c of [].concat(children)) {
+        if (c == null) continue;
+        node.appendChild(typeof c === 'string' ? document.createTextNode(c) : c);
+      }
+    }
+    return node;
+  }
+
+  function svgIcon(viewBox, paths, attrs) {
+    const svg = document.createElementNS(SVG_NS, 'svg');
+    svg.setAttribute('viewBox', viewBox);
+    if (attrs) for (const [k, v] of Object.entries(attrs)) svg.setAttribute(k, v);
+    for (const d of [].concat(paths)) {
+      const p = document.createElementNS(SVG_NS, 'path');
+      p.setAttribute('d', d);
+      svg.appendChild(p);
+    }
+    return svg;
+  }
+
   // ==========================================================================
   //  FEATURE 1 — Per-surface card sizing via injected CSS
   // ==========================================================================
@@ -121,17 +176,23 @@
   }
 
   function buildSizingCss() {
-    const home = PRESETS[getSize('home')] ?? 1;
+    const grid = GRID_PRESETS[getSize('home')];
     const side = PRESETS[getSize('sidebar')] ?? 1;
     let css = '';
 
     // --- Homepage / channel-home grid ---------------------------------------
-    // ytd-rich-grid-renderer lays out ytd-rich-item-renderer cards in a wrapping
-    // flex row. Zooming each item shrinks its layout box, so more fit per row
-    // and text scales with the thumbnail. (Stable tag selectors.)
-    if (home !== 1) {
+    // Override the grid-density CSS variables YouTube sets inline on
+    // ytd-rich-grid-renderer. items-per-row controls the column count; the
+    // max/min-width bounds are widened/lowered so columns actually pack at the
+    // requested count. Text/metadata reflows with the narrower columns.
+    // VERIFY (live DOM): these three variable names are current.
+    if (grid) {
       css += `
-        ytd-rich-grid-renderer ytd-rich-item-renderer { zoom: ${home}; }
+        ytd-rich-grid-renderer {
+          --ytd-rich-grid-items-per-row: ${grid.cols} !important;
+          --ytd-rich-grid-item-max-width: 9999px !important;
+          --ytd-rich-grid-item-min-width: ${grid.minWidth}px !important;
+        }
       `;
     }
 
@@ -259,14 +320,11 @@
   }
 
   function makeButton() {
-    const btn = document.createElement('button');
-    btn.className = 'ytq-btn';
-    btn.type = 'button';
-    btn.title = 'Add to queue';
-    btn.innerHTML =
-      '<svg viewBox="0 0 24 24"><path d="M2 6h12v2H2zM2 12h12v2H2zM2 18h8v2H2z' +
-      'M14 14v4h-4v2h4v4h2v-4h4v-2h-4v-4z"/></svg><span>Queue</span>';
-    return btn;
+    return el('button', { class: 'ytq-btn', type: 'button', title: 'Add to queue' }, [
+      svgIcon('0 0 24 24',
+        'M2 6h12v2H2zM2 12h12v2H2zM2 18h8v2H2zM14 14v4h-4v2h4v4h2v-4h4v-2h-4v-4z'),
+      el('span', { text: 'Queue' }),
+    ]);
   }
 
   function addButtonToCard(card) {
@@ -467,19 +525,17 @@
     const wrap = document.createElement('div');
     wrap.id = 'ytq-ui';
 
-    const gear = document.createElement('button');
-    gear.id = 'ytq-gear';
-    gear.title = 'YouTube Tweaks — card sizing';
-    gear.innerHTML =
-      '<svg viewBox="0 0 24 24"><path d="M19.14 12.94a7.49 7.49 0 0 0 .05-.94 ' +
-      '7.49 7.49 0 0 0-.05-.94l2.03-1.58a.5.5 0 0 0 .12-.61l-1.92-3.32a.5.5 0 0 ' +
-      '0-.59-.22l-2.39.96a7 7 0 0 0-1.62-.94l-.36-2.54a.5.5 0 0 0-.5-.42h-3.84a' +
-      '.5.5 0 0 0-.5.42l-.36 2.54a7 7 0 0 0-1.62.94l-2.39-.96a.5.5 0 0 0-.59.22' +
-      'L2.74 8.87a.5.5 0 0 0 .12.61l2.03 1.58a7.49 7.49 0 0 0 0 1.88l-2.03 1.58' +
-      'a.5.5 0 0 0-.12.61l1.92 3.32a.5.5 0 0 0 .59.22l2.39-.96a7 7 0 0 0 1.62.94' +
-      'l.36 2.54a.5.5 0 0 0 .5.42h3.84a.5.5 0 0 0 .5-.42l.36-2.54a7 7 0 0 0 1.62' +
-      '-.94l2.39.96a.5.5 0 0 0 .59-.22l1.92-3.32a.5.5 0 0 0-.12-.61zM12 15.5A3.5' +
-      ' 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7z"/></svg>';
+    const gear = el('button', { id: 'ytq-gear', title: 'YouTube Tweaks — card sizing' }, [
+      svgIcon('0 0 24 24',
+        'M19.14 12.94a7.49 7.49 0 0 0 .05-.94 7.49 7.49 0 0 0-.05-.94l2.03-1.58a.5' +
+        '.5 0 0 0 .12-.61l-1.92-3.32a.5.5 0 0 0-.59-.22l-2.39.96a7 7 0 0 0-1.62-.94' +
+        'l-.36-2.54a.5.5 0 0 0-.5-.42h-3.84a.5.5 0 0 0-.5.42l-.36 2.54a7 7 0 0 0-1.62' +
+        '.94l-2.39-.96a.5.5 0 0 0-.59.22L2.74 8.87a.5.5 0 0 0 .12.61l2.03 1.58a7.49' +
+        ' 7.49 0 0 0 0 1.88l-2.03 1.58a.5.5 0 0 0-.12.61l1.92 3.32a.5.5 0 0 0 .59.22' +
+        'l2.39-.96a7 7 0 0 0 1.62.94l.36 2.54a.5.5 0 0 0 .5.42h3.84a.5.5 0 0 0 .5-.42' +
+        'l.36-2.54a7 7 0 0 0 1.62-.94l2.39.96a.5.5 0 0 0 .59-.22l1.92-3.32a.5.5 0 0 0' +
+        '-.12-.61zM12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7z'),
+    ]);
 
     const panel = document.createElement('div');
     panel.id = 'ytq-panel';
@@ -530,18 +586,24 @@
   //  BOOTSTRAP
   // ==========================================================================
 
-  // Inject sizing CSS as early as possible to avoid a flash of full-size cards.
-  applySizing();
+  // Run a step in isolation so one failure can't abort the rest of bootstrap.
+  function safe(label, fn) {
+    try { return fn(); }
+    catch (err) { console.error(`[yt-tweaks] ${label} failed:`, err); }
+  }
 
   function onReady(fn) {
     if (document.body) fn();
     else document.addEventListener('DOMContentLoaded', fn, { once: true });
   }
 
+  // Inject sizing CSS as early as possible to avoid a flash of full-size cards.
+  safe('applySizing', applySizing);
+
   onReady(() => {
-    buttonStyle();
-    buildSettingsUi();
-    processCards(document);
+    safe('buttonStyle', buttonStyle);
+    safe('buildSettingsUi', buildSettingsUi);
+    safe('processCards', () => processCards(document));
 
     // Re-scan for new/lazy-loaded cards. Debounced so bursts of mutations
     // (infinite scroll, SPA nav) coalesce into a single pass.
@@ -550,17 +612,17 @@
       if (pending) return;
       pending = requestAnimationFrame(() => {
         pending = null;
-        processCards(document);
+        safe('processCards', () => processCards(document));
       });
     });
-    observer.observe(document.body, { childList: true, subtree: true });
+    safe('observe', () => observer.observe(document.body, { childList: true, subtree: true }));
 
     // YouTube fires this after every SPA navigation. Re-scan and make sure our
     // UI/sizing survived (the persistent <style> tags normally do).
     window.addEventListener('yt-navigate-finish', () => {
-      applySizing();
-      buildSettingsUi();
-      processCards(document);
+      safe('applySizing', applySizing);
+      safe('buildSettingsUi', buildSettingsUi);
+      safe('processCards', () => processCards(document));
     });
   });
 

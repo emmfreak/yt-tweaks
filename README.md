@@ -26,11 +26,19 @@ features:
 
 ## How it works (and what might need maintenance)
 
-- **Sizing** is done with an injected `<style>` tag using CSS `zoom` on the card
-  containers. `zoom` (unlike `transform: scale`) shrinks the *layout box*, so
-  the grid genuinely reflows to fit more cards and all nested text scales
-  uniformly. Requires Chromium or Firefox 126+. Because it's a persistent
-  stylesheet, it survives YouTube's SPA navigation automatically.
+- **Sizing** is an injected `<style>` tag, persistent so it survives SPA
+  navigation. The two surfaces use different (correct) mechanisms:
+  - *Homepage grid* overrides the responsive density CSS variables on
+    `ytd-rich-grid-renderer` (`--ytd-rich-grid-items-per-row` /
+    `--ytd-rich-grid-item-min-width` / `--ytd-rich-grid-item-max-width`) to set
+    the column count directly. Presets map to ~7/6/5/native/3 columns.
+  - *Watch sidebar* uses CSS `zoom` on the recommendation cards — it's a
+    vertical list, so shrinking each card's layout box genuinely fits more rows
+    and all text scales with it. Requires Chromium or Firefox 126+.
+- **Trusted Types**: YouTube enforces `require-trusted-types-for 'script'`, so
+  the script never uses `innerHTML`/`outerHTML`/`insertAdjacentHTML`. All
+  elements (including SVG icons) are built via `createElement`/`createElementNS`
+  + `textContent`/`setAttribute` through the `el()`/`svgIcon()` helpers.
 - **Queue** drives YouTube's own 3-dot menu headlessly (the popup is suppressed
   via CSS so it never flashes) and clicks the real "Add to queue" item — so the
   behaviour is always native. An opt-in direct-command path exists
